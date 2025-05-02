@@ -9,6 +9,7 @@ import NotFound from "./pages/NotFound";
 import TicTacToe from "./pages/TicTacToe";
 import MemoryMatch from "./pages/MemoryMatch";
 import Snake from "./pages/Snake";
+import Sudoku from "./pages/Sudoku";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ const App = () => (
           <Route path="/games/tic-tac-toe" element={<TicTacToe />} />
           <Route path="/games/memory-match" element={<MemoryMatch />} />
           <Route path="/games/snake" element={<Snake />} />
+          <Route path="/games/sudoku" element={<Sudoku />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

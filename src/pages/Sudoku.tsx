@@ -1,437 +1,393 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import Header from '../components/Header';
 import Footer from '../components/Footer';
-import AdSpace from '../components/AdSpace';
-import { ArrowLeft } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { toast } from "sonner";
 
-// Sudoku difficulty levels
-const DIFFICULTY_LEVELS = {
-  EASY: { name: 'Easy', emptyCells: 30 },
-  MEDIUM: { name: 'Medium', emptyCells: 40 },
-  HARD: { name: 'Hard', emptyCells: 50 },
+interface SudokuBoard {
+  playBoard: number[][];
+  solutionBoard: number[][];
+}
+
+const generateSudokuBoard = (difficulty: 'easy' | 'medium' | 'hard'): SudokuBoard => {
+  // Generate a completed Sudoku board
+  const completedBoard = generateCompletedBoard();
+  
+  // Create a copy of the completed board
+  const playBoard = JSON.parse(JSON.stringify(completedBoard));
+  
+  // Remove numbers based on difficulty
+  const cellsToRemove = difficulty === 'easy' ? 35 : difficulty === 'medium' ? 45 : 55;
+  
+  // Remove random numbers from the board
+  let removedCount = 0;
+  while (removedCount < cellsToRemove) {
+    const row = Math.floor(Math.random() * 9);
+    const col = Math.floor(Math.random() * 9);
+    
+    if (playBoard[row][col] !== 0) {
+      playBoard[row][col] = 0;
+      removedCount++;
+    }
+  }
+  
+  return { playBoard, solutionBoard: completedBoard };
+};
+
+// Helper function to generate a completed Sudoku board
+const generateCompletedBoard = (): number[][] => {
+  // Start with an empty 9x9 board
+  const board = Array(9).fill(0).map(() => Array(9).fill(0));
+  
+  // Fill the board using backtracking algorithm
+  solveSudoku(board);
+  
+  return board;
+};
+
+// Backtracking algorithm to solve a Sudoku board
+const solveSudoku = (board: number[][]): boolean => {
+  // Find an empty cell
+  let row = -1;
+  let col = -1;
+  let isEmpty = false;
+  
+  for (let i = 0; i < 9; i++) {
+    for (let j = 0; j < 9; j++) {
+      if (board[i][j] === 0) {
+        row = i;
+        col = j;
+        isEmpty = true;
+        break;
+      }
+    }
+    if (isEmpty) break;
+  }
+  
+  // If there are no empty cells, the board is solved
+  if (!isEmpty) return true;
+  
+  // Try placing digits 1-9 in the empty cell
+  const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  shuffleArray(numbers); // Randomize the order to generate different boards
+  
+  for (const num of numbers) {
+    if (isSafe(board, row, col, num)) {
+      board[row][col] = num;
+      
+      if (solveSudoku(board)) {
+        return true;
+      }
+      
+      board[row][col] = 0; // Backtrack if the current configuration doesn't lead to a solution
+    }
+  }
+  
+  return false;
+};
+
+// Check if it's safe to place a number at a specific position
+const isSafe = (board: number[][], row: number, col: number, num: number): boolean => {
+  // Check row
+  for (let x = 0; x < 9; x++) {
+    if (board[row][x] === num) return false;
+  }
+  
+  // Check column
+  for (let x = 0; x < 9; x++) {
+    if (board[x][col] === num) return false;
+  }
+  
+  // Check 3x3 box
+  const startRow = Math.floor(row / 3) * 3;
+  const startCol = Math.floor(col / 3) * 3;
+  
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      if (board[i + startRow][j + startCol] === num) return false;
+    }
+  }
+  
+  return true;
+};
+
+// Helper function to shuffle an array (Fisher-Yates algorithm)
+const shuffleArray = (array: number[]): void => {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
 };
 
 const Sudoku: React.FC = () => {
-  // Game state
-  const [board, setBoard] = useState<number[][]>([]);
-  const [initialBoard, setInitialBoard] = useState<number[][]>([]);
+  const [board, setBoard] = useState<SudokuBoard>({ playBoard: [], solutionBoard: [] });
   const [selectedCell, setSelectedCell] = useState<[number, number] | null>(null);
-  const [difficulty, setDifficulty] = useState(DIFFICULTY_LEVELS.EASY);
-  const [isGameOver, setIsGameOver] = useState(false);
-  const [timeElapsed, setTimeElapsed] = useState(0);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [mistakes, setMistakes] = useState(0);
-  const [hints, setHints] = useState(3);
-
-  // Generate a valid Sudoku board
-  const generateSudokuBoard = useCallback(() => {
-    // Create an empty 9x9 board
-    const newBoard = Array(9).fill(null).map(() => Array(9).fill(0));
+  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('easy');
+  const [timer, setTimer] = useState<number>(0);
+  const [isRunning, setIsRunning] = useState<boolean>(true);
+  const [gameOver, setGameOver] = useState<boolean>(false);
+  const [mistakes, setMistakes] = useState<number>(0);
+  const [originalCells, setOriginalCells] = useState<boolean[][]>([]);
+  const [hintsUsed, setHintsUsed] = useState<number>(0);
+  
+  // Initialize game
+  useEffect(() => {
+    startNewGame();
+  }, []);
+  
+  // Timer logic
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
     
-    // Solve the empty board to get a complete valid solution
-    const success = solveSudoku(newBoard);
-    
-    if (!success) {
-      // Should never happen with an empty board
-      console.error("Failed to generate a valid Sudoku board");
-      return newBoard;
+    if (isRunning && !gameOver) {
+      interval = setInterval(() => {
+        setTimer((prevTime) => prevTime + 1);
+      }, 1000);
     }
-
-    // Create a copy of the solved board to use as the solution
-    const solvedBoard = newBoard.map(row => [...row]);
     
-    // Remove some numbers based on difficulty
-    const boardWithRemovedCells = solvedBoard.map(row => [...row]);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isRunning, gameOver]);
+  
+  const startNewGame = () => {
+    const newBoard = generateSudokuBoard(difficulty);
+    setBoard(newBoard);
+    setSelectedCell(null);
+    setTimer(0);
+    setIsRunning(true);
+    setGameOver(false);
+    setMistakes(0);
+    setHintsUsed(0);
     
-    // Create a list of all cell positions
-    const positions = [];
+    // Track which cells were originally filled
+    const originalArray = Array(9).fill(0).map(() => Array(9).fill(false));
     for (let i = 0; i < 9; i++) {
       for (let j = 0; j < 9; j++) {
-        positions.push([i, j]);
+        if (newBoard.playBoard[i][j] !== 0) {
+          originalArray[i][j] = true;
+        }
       }
     }
-    
-    // Shuffle the positions
-    for (let i = positions.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [positions[i], positions[j]] = [positions[j], positions[i]];
-    }
-    
-    // Remove cells based on difficulty
-    for (let i = 0; i < difficulty.emptyCells && i < positions.length; i++) {
-      const [row, col] = positions[i];
-      boardWithRemovedCells[row][col] = 0;
-    }
-    
-    return { playBoard: boardWithRemovedCells, solutionBoard: solvedBoard };
-  }, [difficulty]);
-
-  // Check if a number can be placed at a specific position
-  const isValid = (board: number[][], row: number, col: number, num: number): boolean => {
-    // Check row
-    for (let i = 0; i < 9; i++) {
-      if (board[row][i] === num) return false;
-    }
-    
-    // Check column
-    for (let i = 0; i < 9; i++) {
-      if (board[i][col] === num) return false;
-    }
-    
-    // Check 3x3 box
-    const boxRow = Math.floor(row / 3) * 3;
-    const boxCol = Math.floor(col / 3) * 3;
-    for (let i = 0; i < 3; i++) {
-      for (let j = 0; j < 3; j++) {
-        if (board[boxRow + i][boxCol + j] === num) return false;
-      }
-    }
-    
-    return true;
+    setOriginalCells(originalArray);
   };
-
-  // Solve the Sudoku board using backtracking
-  const solveSudoku = (board: number[][]): boolean => {
-    for (let row = 0; row < 9; row++) {
-      for (let col = 0; col < 9; col++) {
-        if (board[row][col] === 0) {
-          // Try placing numbers 1-9
-          for (let num = 1; num <= 9; num++) {
-            if (isValid(board, row, col, num)) {
-              // Place the number
-              board[row][col] = num;
-              
-              // Recursively try to solve the rest of the board
-              if (solveSudoku(board)) {
-                return true;
-              }
-              
-              // If placing the number doesn't lead to a solution, backtrack
-              board[row][col] = 0;
-            }
+  
+  const handleCellClick = (row: number, col: number) => {
+    if (!gameOver && !originalCells[row][col]) {
+      setSelectedCell([row, col]);
+    }
+  };
+  
+  const handleNumberInput = (num: number) => {
+    if (selectedCell && !gameOver) {
+      const [row, col] = selectedCell;
+      
+      if (originalCells[row][col]) return;
+      
+      const newBoard = { ...board };
+      
+      // Check if the move is valid
+      if (num === board.solutionBoard[row][col]) {
+        newBoard.playBoard[row][col] = num;
+        setBoard(newBoard);
+        
+        // Check if the puzzle is solved
+        if (isBoardComplete(newBoard.playBoard)) {
+          setGameOver(true);
+          setIsRunning(false);
+          toast.success("Congratulations! You've solved the puzzle!");
+        }
+      } else {
+        // Incorrect number
+        setMistakes((prev) => {
+          const newMistakes = prev + 1;
+          if (newMistakes >= 3) {
+            setGameOver(true);
+            setIsRunning(false);
+            toast.error("Game Over! You made too many mistakes.");
           }
-          
-          // No valid number found for this cell
+          return newMistakes;
+        });
+      }
+    }
+  };
+  
+  const handleHint = () => {
+    if (selectedCell && !gameOver && hintsUsed < 3) {
+      const [row, col] = selectedCell;
+      
+      if (originalCells[row][col] || board.playBoard[row][col] !== 0) return;
+      
+      const newBoard = { ...board };
+      newBoard.playBoard[row][col] = board.solutionBoard[row][col];
+      setBoard(newBoard);
+      setHintsUsed((prev) => prev + 1);
+      
+      // Check if the puzzle is solved
+      if (isBoardComplete(newBoard.playBoard)) {
+        setGameOver(true);
+        setIsRunning(false);
+        toast.success("Puzzle solved!");
+      }
+    } else if (hintsUsed >= 3) {
+      toast.info("You've used all your hints!");
+    }
+  };
+  
+  const isBoardComplete = (playBoard: number[][]): boolean => {
+    for (let i = 0; i < 9; i++) {
+      for (let j = 0; j < 9; j++) {
+        if (playBoard[i][j] === 0) {
           return false;
         }
       }
     }
-    
-    // All cells are filled
     return true;
   };
-
-  // Start a new game
-  const startNewGame = () => {
-    const { playBoard, solutionBoard } = generateSudokuBoard();
-    setBoard(playBoard.map(row => [...row]));
-    setInitialBoard(playBoard.map(row => [...row]));
-    setSelectedCell(null);
-    setIsGameOver(false);
-    setTimeElapsed(0);
-    setIsTimerRunning(true);
-    setMistakes(0);
-    setHints(3);
-  };
-
-  // Reset the current game
-  const resetGame = () => {
-    setBoard(initialBoard.map(row => [...row]));
-    setSelectedCell(null);
-    setTimeElapsed(0);
-    setIsTimerRunning(true);
-    setMistakes(0);
-    setHints(3);
-  };
-
-  // Handle cell click
-  const handleCellClick = (row: number, col: number) => {
-    // Only allow selecting empty cells or cells that were empty in the initial board
-    if (!isGameOver && initialBoard[row][col] === 0) {
-      setSelectedCell([row, col]);
-    }
-  };
-
-  // Handle number input for selected cell
-  const handleNumberInput = (num: number) => {
-    if (!selectedCell || isGameOver) return;
-    
-    const [row, col] = selectedCell;
-    
-    // Only allow changing cells that were empty in the initial board
-    if (initialBoard[row][col] !== 0) return;
-    
-    const newBoard = board.map(row => [...row]);
-    newBoard[row][col] = num;
-    setBoard(newBoard);
-    
-    // Check if the move is valid by solving the board and comparing
-    const { solutionBoard } = generateSudokuBoard();
-    if (solutionBoard[row][col] !== num) {
-      setMistakes(prevMistakes => prevMistakes + 1);
-      toast.error("Incorrect move!");
-      
-      // Limit mistakes to 3 before game over
-      if (mistakes >= 2) {
-        setIsGameOver(true);
-        setIsTimerRunning(false);
-        toast.error("Game over! Too many mistakes.");
-      }
-    }
-    
-    // Check if the game is won
-    if (!newBoard.some(row => row.includes(0))) {
-      const isCorrect = newBoard.every((row, rowIdx) => 
-        row.every((cell, colIdx) => cell === solutionBoard[rowIdx][colIdx])
-      );
-      
-      if (isCorrect) {
-        setIsGameOver(true);
-        setIsTimerRunning(false);
-        toast.success("Congratulations! You've solved the puzzle!");
-        
-        // Save high score
-        const highScore = localStorage.getItem('sudokuHighScore') || '9999';
-        if (timeElapsed < parseInt(highScore)) {
-          localStorage.setItem('sudokuHighScore', timeElapsed.toString());
-          toast("New high score!", {
-            description: `You completed the puzzle in ${formatTime(timeElapsed)}!`,
-          });
-        }
-      }
-    }
-  };
-
-  // Use a hint
-  const useHint = () => {
-    if (!selectedCell || hints <= 0 || isGameOver) return;
-    
-    const [row, col] = selectedCell;
-    
-    // Only provide hints for empty cells
-    if (board[row][col] !== 0) return;
-    
-    setHints(prevHints => prevHints - 1);
-    
-    // Solve the current board to find the correct number
-    const { solutionBoard } = generateSudokuBoard();
-    const correctNumber = solutionBoard[row][col];
-    
-    const newBoard = board.map(boardRow => [...boardRow]);
-    newBoard[row][col] = correctNumber;
-    setBoard(newBoard);
-    
-    toast("Hint used!", {
-      description: `Correct number: ${correctNumber}`,
-    });
-    
-    // Check if the game is won after using a hint
-    if (!newBoard.some(row => row.includes(0))) {
-      setIsGameOver(true);
-      setIsTimerRunning(false);
-      toast.success("Congratulations! You've solved the puzzle!");
-    }
-  };
-
-  // Change difficulty level
-  const changeDifficulty = (newDifficulty: typeof DIFFICULTY_LEVELS.EASY) => {
-    setDifficulty(newDifficulty);
-    toast(`Difficulty set to ${newDifficulty.name}`);
-  };
-
-  // Format time display (MM:SS)
+  
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
-  // Timer effect
-  useEffect(() => {
-    let timerId: number | undefined;
-    
-    if (isTimerRunning) {
-      timerId = window.setInterval(() => {
-        setTimeElapsed(prevTime => prevTime + 1);
-      }, 1000);
-    }
-    
-    return () => {
-      if (timerId) {
-        clearInterval(timerId);
-      }
-    };
-  }, [isTimerRunning]);
-
-  // Initialize game on component mount and when difficulty changes
-  useEffect(() => {
-    startNewGame();
-  }, [difficulty]);
-
+  
   return (
     <div className="flex flex-col min-h-screen">
       <Header />
       
       <main className="flex-grow container mx-auto px-4 py-8">
-        <div className="mb-6">
-          <Link to="/" className="flex items-center text-funzone-purple hover:text-funzone-dark-purple transition-colors">
-            <ArrowLeft size={20} className="mr-2" />
-            Back to Games
-          </Link>
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-funzone-purple mb-2">Sudoku</h1>
+          <p className="text-gray-600">
+            Fill in the grid with numbers 1-9 so that each row, column, and 3×3 box contains every digit.
+          </p>
         </div>
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <Card className="col-span-1 lg:col-span-2">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle className="text-2xl font-bold text-center">Sudoku</CardTitle>
+              <CardTitle className="flex justify-between items-center">
+                <span>Game Board</span>
+                <div className="flex space-x-2">
+                  <span className="text-sm font-normal bg-funzone-light-purple text-funzone-dark-purple px-3 py-1 rounded-full">
+                    Time: {formatTime(timer)}
+                  </span>
+                  <span className="text-sm font-normal bg-red-100 text-red-600 px-3 py-1 rounded-full">
+                    Mistakes: {mistakes}/3
+                  </span>
+                </div>
+              </CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col items-center">
-              <div className="mb-4 flex justify-between w-full max-w-md">
-                <div className="text-lg">
-                  <span className="font-bold">Time:</span> {formatTime(timeElapsed)}
-                </div>
-                <div className="text-lg">
-                  <span className="font-bold">Mistakes:</span> {mistakes}/3
-                </div>
-                <div className="text-lg">
-                  <span className="font-bold">Hints:</span> {hints}
-                </div>
-              </div>
-              
-              <div className="border-2 border-gray-300 mb-6 p-1 bg-white">
-                <div className="grid grid-cols-9 gap-0.5 bg-gray-200">
-                  {board.map((row, rowIdx) => 
-                    row.map((cell, colIdx) => {
-                      const isInitial = initialBoard[rowIdx][colIdx] !== 0;
-                      const isSelected = selectedCell && selectedCell[0] === rowIdx && selectedCell[1] === colIdx;
-                      const boxRow = Math.floor(rowIdx / 3);
-                      const boxCol = Math.floor(colIdx / 3);
-                      const isAlternateBox = (boxRow + boxCol) % 2 === 1;
-                      
-                      return (
-                        <div 
-                          key={`${rowIdx}-${colIdx}`}
-                          className={`
-                            w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center 
-                            text-lg font-bold cursor-pointer select-none
-                            ${isInitial ? 'bg-gray-100 text-black' : 'bg-white text-funzone-purple'}
-                            ${isSelected ? 'bg-funzone-light-purple' : ''}
-                            ${isAlternateBox ? 'bg-opacity-60' : ''}
-                            ${(rowIdx + 1) % 3 === 0 && rowIdx < 8 ? 'border-b-2 border-gray-400' : ''}
-                            ${(colIdx + 1) % 3 === 0 && colIdx < 8 ? 'border-r-2 border-gray-400' : ''}
-                          `}
-                          onClick={() => handleCellClick(rowIdx, colIdx)}
-                        >
-                          {cell !== 0 ? cell : ''}
-                        </div>
-                      );
-                    })
-                  )}
+            <CardContent>
+              <div className="flex justify-center">
+                <div className="bg-white p-2 border border-gray-300 rounded-lg shadow-inner">
+                  <div className="grid grid-cols-9 gap-1">
+                    {Array(9).fill(0).map((_, rowIndex) => (
+                      Array(9).fill(0).map((_, colIndex) => {
+                        const isSelected = selectedCell && selectedCell[0] === rowIndex && selectedCell[1] === colIndex;
+                        const isOriginal = originalCells[rowIndex]?.[colIndex];
+                        const cellValue = board.playBoard[rowIndex]?.[colIndex] || 0;
+                        
+                        return (
+                          <div 
+                            key={`${rowIndex}-${colIndex}`} 
+                            onClick={() => handleCellClick(rowIndex, colIndex)}
+                            className={`w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center text-sm sm:text-lg font-medium border 
+                              ${isSelected ? 'bg-funzone-light-purple border-funzone-purple' : 'bg-white border-gray-300'} 
+                              ${(rowIndex % 3 === 0 && rowIndex > 0) ? 'border-t-2 border-t-gray-500' : ''} 
+                              ${(colIndex % 3 === 0 && colIndex > 0) ? 'border-l-2 border-l-gray-500' : ''} 
+                              ${isOriginal ? 'text-gray-800 font-bold' : 'text-funzone-blue'} 
+                              cursor-pointer transition-colors`}
+                          >
+                            {cellValue !== 0 ? cellValue : ''}
+                          </div>
+                        );
+                      })
+                    ))}
+                  </div>
                 </div>
               </div>
               
-              <div className="grid grid-cols-9 gap-1 mb-6 max-w-md">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
-                  <button
-                    key={num}
-                    className="w-10 h-10 sm:w-12 sm:h-12 bg-funzone-purple text-white font-bold text-lg rounded hover:bg-funzone-dark-purple transition-colors"
-                    onClick={() => handleNumberInput(num)}
-                    disabled={isGameOver}
-                  >
-                    {num}
-                  </button>
-                ))}
+              {/* Number input pad */}
+              <div className="mt-6">
+                <div className="flex justify-center">
+                  <div className="grid grid-cols-9 gap-1 sm:gap-2">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                      <Button
+                        key={num}
+                        variant="outline"
+                        className="w-8 h-8 sm:w-10 sm:h-10 text-sm sm:text-lg"
+                        onClick={() => handleNumberInput(num)}
+                        disabled={gameOver}
+                      >
+                        {num}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-center gap-3">
+              <Button 
+                onClick={startNewGame} 
+                className="bg-funzone-purple hover:bg-funzone-dark-purple"
+              >
+                New Game
+              </Button>
+              <Button 
+                onClick={handleHint} 
+                variant="outline" 
+                disabled={gameOver || hintsUsed >= 3}
+              >
+                Hint ({3 - hintsUsed})
+              </Button>
+            </CardFooter>
+          </Card>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>Game Options</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4">
+                <h3 className="text-sm font-medium mb-2">Difficulty</h3>
+                <div className="flex flex-col space-y-2">
+                  {['easy', 'medium', 'hard'].map((level) => (
+                    <div key={level} className="flex items-center">
+                      <input 
+                        type="radio" 
+                        id={level} 
+                        name="difficulty" 
+                        checked={difficulty === level} 
+                        onChange={() => setDifficulty(level as 'easy' | 'medium' | 'hard')} 
+                        className="mr-2" 
+                      />
+                      <label htmlFor={level} className="capitalize">{level}</label>
+                    </div>
+                  ))}
+                </div>
               </div>
               
-              <div className="flex flex-wrap gap-2 mb-6 justify-center">
-                <Button 
-                  onClick={startNewGame}
-                  variant="default" 
-                  className="bg-funzone-purple hover:bg-funzone-dark-purple"
-                >
-                  New Game
-                </Button>
-                <Button 
-                  onClick={resetGame}
-                  variant="outline"
-                >
-                  Reset
-                </Button>
-                <Button 
-                  onClick={useHint}
-                  variant="outline"
-                  disabled={hints <= 0 || !selectedCell || isGameOver}
-                  className="text-funzone-orange border-funzone-orange hover:bg-funzone-orange/10"
-                >
-                  Use Hint ({hints})
-                </Button>
-              </div>
+              <Button 
+                onClick={startNewGame} 
+                className="w-full bg-funzone-purple hover:bg-funzone-dark-purple"
+              >
+                Start New Game
+              </Button>
               
-              <div className="flex flex-wrap gap-2 justify-center">
-                <Button
-                  onClick={() => changeDifficulty(DIFFICULTY_LEVELS.EASY)}
-                  variant={difficulty === DIFFICULTY_LEVELS.EASY ? "default" : "outline"}
-                  className={difficulty === DIFFICULTY_LEVELS.EASY ? "bg-funzone-purple hover:bg-funzone-dark-purple" : ""}
-                >
-                  Easy
-                </Button>
-                <Button
-                  onClick={() => changeDifficulty(DIFFICULTY_LEVELS.MEDIUM)}
-                  variant={difficulty === DIFFICULTY_LEVELS.MEDIUM ? "default" : "outline"}
-                  className={difficulty === DIFFICULTY_LEVELS.MEDIUM ? "bg-funzone-purple hover:bg-funzone-dark-purple" : ""}
-                >
-                  Medium
-                </Button>
-                <Button
-                  onClick={() => changeDifficulty(DIFFICULTY_LEVELS.HARD)}
-                  variant={difficulty === DIFFICULTY_LEVELS.HARD ? "default" : "outline"}
-                  className={difficulty === DIFFICULTY_LEVELS.HARD ? "bg-funzone-purple hover:bg-funzone-dark-purple" : ""}
-                >
-                  Hard
-                </Button>
+              <div className="mt-6 bg-gray-100 p-3 rounded-lg">
+                <h3 className="font-medium mb-2">How to Play</h3>
+                <ul className="text-sm text-gray-600 space-y-1 list-disc pl-5">
+                  <li>Fill the grid so every row, column and 3×3 box contains digits 1-9</li>
+                  <li>Click a cell, then select a number</li>
+                  <li>You have 3 hints to use</li>
+                  <li>Watch out for mistakes - you're limited to 3!</li>
+                </ul>
               </div>
             </CardContent>
           </Card>
-          
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>How to Play</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="list-disc pl-5 space-y-2">
-                  <li>Fill in the grid so that every row, column, and 3×3 box contains digits 1-9</li>
-                  <li>Click on an empty cell and then click a number to fill it</li>
-                  <li>You can't change the initial numbers</li>
-                  <li>You're allowed 3 mistakes before the game ends</li>
-                  <li>Use hints wisely - you only get 3 per game</li>
-                </ul>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle>Best Time</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-funzone-purple">
-                    {localStorage.getItem('sudokuHighScore') 
-                      ? formatTime(parseInt(localStorage.getItem('sudokuHighScore') || '0')) 
-                      : "No record yet"}
-                  </p>
-                  <p className="text-sm text-gray-500 mt-2">Try to beat your best time!</p>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <AdSpace width="300px" height="250px" />
-          </div>
         </div>
       </main>
       

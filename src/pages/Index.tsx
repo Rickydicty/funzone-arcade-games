@@ -10,7 +10,7 @@ const Index: React.FC = () => {
     {
       id: 1,
       title: 'Tic-Tac-Toe',
-      description: 'The classic game of X's and O's. Challenge a friend or play against the computer!',
+      description: "The classic game of X's and O's. Challenge a friend or play against the computer!",
       imageUrl: 'https://images.unsplash.com/photo-1611996575749-79a3a250f948?q=80&w=2070&auto=format&fit=crop',
       gameUrl: '/games/tic-tac-toe.html',
     },
